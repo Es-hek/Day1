@@ -223,7 +223,7 @@ sentiment_results <- tidy_articles %>%
 cat("\nSentiment counts per article:\n")
 print(as.data.frame(sentiment_results))
 
-png("sentiment_analysis.png", width = max(600, num_articles * 200), height = 500, res = 120)
+png("sentiment_analysis.png", width = min(max(600, num_articles * 200), 1600), height = 500, res = 120)
 print(ggplot(sentiment_results, aes(x = article, y = count, fill = sentiment)) +
   geom_bar(stat = "identity", position = "dodge") +
   scale_fill_manual(values = c("negative" = "#E74C3C", "positive" = "#2ECC71")) +
@@ -243,7 +243,7 @@ cat("\nNet sentiment per article:\n")
 print(as.data.frame(net_sentiment))
 
 # --- 10. Sentiment Trend Across Articles ---
-png("sentiment_trend.png", width = max(600, num_articles * 200), height = 500, res = 120)
+png("sentiment_trend.png", width = min(max(600, num_articles * 200), 1600), height = 500, res = 120)
 ns_df <- as.data.frame(net_sentiment)
 ns_df$article <- factor(ns_df$article, levels = article_names)
 print(ggplot(ns_df, aes(x = article, y = net, group = 1)) +
@@ -299,7 +299,7 @@ keyword_long <- tidyr::pivot_longer(keyword_analysis,
                                      names_to  = "category",
                                      values_to = "count")
 
-png("keyword_trends.png", width = max(700, num_articles * 200), height = 500, res = 120)
+png("keyword_trends.png", width = min(max(700, num_articles * 200), 1600), height = 500, res = 120)
 print(ggplot(keyword_long, aes(x = category, y = count, fill = article)) +
   geom_bar(stat = "identity", position = "dodge") +
   scale_fill_manual(values = article_colours, labels = article_labels) +
@@ -325,7 +325,7 @@ keyword_pct_long <- tidyr::pivot_longer(keyword_pct,
 keyword_pct_long$article <- factor(keyword_pct_long$article,
                                     levels = article_names)
 
-png("topic_trend.png", width = max(700, num_articles * 200), height = 500, res = 120)
+png("topic_trend.png", width = min(max(700, num_articles * 200), 1600), height = 500, res = 120)
 print(ggplot(keyword_pct_long, aes(x = article, y = percentage,
                                     colour = category, group = category)) +
   geom_line(linewidth = 1.2) +
@@ -388,8 +388,8 @@ if (num_articles >= 2) {
   sim_df <- as.data.frame(as.table(sim_matrix))
   colnames(sim_df) <- c("Article_A", "Article_B", "Similarity")
 
-  png("similarity_heatmap.png", width = max(500, num_articles * 120),
-      height = max(400, num_articles * 100), res = 120)
+  png("similarity_heatmap.png", width = min(max(500, num_articles * 120), 1600),
+      height = min(max(400, num_articles * 100), 1400), res = 120)
   print(ggplot(sim_df, aes(x = Article_A, y = Article_B, fill = Similarity)) +
     geom_tile(colour = "white") +
     geom_text(aes(label = sprintf("%.2f", Similarity)), size = 3.5) +

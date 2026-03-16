@@ -1,0 +1,5 @@
+*.png
+Rplots.pdf
+.Rhistory
+.RData
+.Rproj.user

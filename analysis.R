@@ -7,7 +7,7 @@
 # --- 1. Install and Load Required Libraries ---
 required_packages <- c("tm", "SnowballC", "wordcloud", "RColorBrewer",
                         "ggplot2", "tidytext", "dplyr", "tidyr",
-                        "stringr", "reshape2")
+                        "stringr")
 
 install_if_missing <- function(pkg) {
   if (!requireNamespace(pkg, quietly = TRUE)) {
@@ -26,7 +26,6 @@ library(tidytext)
 library(dplyr)
 library(tidyr)
 library(stringr)
-library(reshape2)
 
 # --- 2. Load Articles ---
 articles_dir <- file.path(getwd(), "articles")

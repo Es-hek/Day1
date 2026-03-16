@@ -63,4 +63,3 @@ The script will automatically install any missing R packages and generate five v
 - `ggplot2` — Data visualization
 - `tidytext` — Tidy text mining
 - `dplyr`, `tidyr`, `stringr` — Data manipulation
-- `reshape2` — Data reshaping

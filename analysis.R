@@ -15,7 +15,7 @@
 # --- 1. Install and Load Required Libraries ---
 required_packages <- c("tm", "SnowballC", "wordcloud", "RColorBrewer",
                         "ggplot2", "tidytext", "dplyr", "tidyr",
-                        "stringr")
+                        "stringr", "slam")
 
 install_if_missing <- function(pkg) {
   if (!requireNamespace(pkg, quietly = TRUE)) {
@@ -34,9 +34,24 @@ library(tidytext)
 library(dplyr)
 library(tidyr)
 library(stringr)
+library(slam)
 
 # --- 2. Load Articles (auto-detects every .txt in articles/) ---
-articles_dir <- file.path(getwd(), "articles")
+# Resolve articles/ relative to the script's own directory so the script
+# works regardless of the caller's working directory.
+script_dir <- tryCatch({
+  # Works when invoked via Rscript / source()
+  args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- grep("^--file=", args, value = TRUE)
+  if (length(file_arg) > 0) {
+    normalizePath(dirname(sub("^--file=", "", file_arg)), mustWork = TRUE)
+  } else {
+    # Fallback: works inside RStudio / interactive sessions
+    getwd()
+  }
+}, error = function(e) getwd())
+
+articles_dir <- file.path(script_dir, "articles")
 cat("Loading articles from:", articles_dir, "\n")
 
 article_files <- sort(list.files(articles_dir, pattern = "\\.txt$",
@@ -109,7 +124,7 @@ dtm <- DocumentTermMatrix(corpus_clean)
 cat("\nDocument-Term Matrix:", nrow(dtm), "documents x", ncol(dtm), "terms\n")
 
 # --- 5. Overall Term Frequency ---
-term_freq <- colSums(as.matrix(dtm))
+term_freq <- slam::col_sums(dtm)
 term_freq_sorted <- sort(term_freq, decreasing = TRUE)
 
 cat("\n--- Top 30 Most Frequent Terms ---\n")
@@ -149,32 +164,37 @@ cat("Saved: wordcloud.png\n")
 # --- 7. TF-IDF Analysis ---
 dtm_tfidf    <- DocumentTermMatrix(corpus_clean,
                                     control = list(weighting = weightTfIdf))
-tfidf_matrix <- as.matrix(dtm_tfidf)
 
 cat("\n--- Top TF-IDF Terms per Article ---\n")
-for (i in seq_len(nrow(tfidf_matrix))) {
-  top_idx <- order(tfidf_matrix[i, ], decreasing = TRUE)[1:10]
+for (i in seq_len(nrow(dtm_tfidf))) {
+  row_mat  <- as.matrix(dtm_tfidf[i, ])
+  row_vals <- as.numeric(row_mat[1, ])
+  names(row_vals) <- colnames(row_mat)
+  top_idx  <- order(row_vals, decreasing = TRUE)[1:10]
   cat(sprintf("\nArticle %s – Top 10 distinctive terms:\n", article_names[i]))
   for (j in top_idx) {
-    if (tfidf_matrix[i, j] > 0) {
+    if (row_vals[j] > 0) {
       cat(sprintf("  %-20s  TF-IDF: %.4f\n",
-                  colnames(tfidf_matrix)[j], tfidf_matrix[i, j]))
+                  names(row_vals)[j], row_vals[j]))
     }
   }
 }
 
 # --- 8. Comparative Term Frequency (dynamic for N articles) ---
-freq_by_doc <- as.data.frame(as.matrix(dtm))
-rownames(freq_by_doc) <- article_names
-
-common_terms <- colnames(freq_by_doc)[colSums(freq_by_doc > 0) == num_articles]
+# Use sparse row sums to find common terms without full dense conversion
+presence_sums <- slam::col_sums(dtm > 0)
+common_terms  <- names(presence_sums[presence_sums == num_articles])
 cat("\nTerms common to ALL articles:", length(common_terms), "\n")
 
 if (length(common_terms) > 0) {
-  # Build a data-frame with one column per article
+  # Extract only the common-term columns (much smaller than full DTM)
+  dtm_common <- dtm[, common_terms]
+  freq_common <- as.matrix(dtm_common)
+  rownames(freq_common) <- article_names
+
   common_df <- data.frame(term = common_terms, stringsAsFactors = FALSE)
   for (name in article_names) {
-    common_df[[name]] <- as.numeric(freq_by_doc[name, common_terms])
+    common_df[[name]] <- as.numeric(freq_common[name, ])
   }
   common_df$total <- rowSums(common_df[, article_names, drop = FALSE])
   common_df <- common_df[order(-common_df$total), ]
@@ -218,7 +238,11 @@ bing <- get_sentiments("bing")
 sentiment_results <- tidy_articles %>%
   inner_join(bing, by = "word") %>%
   group_by(article, sentiment) %>%
-  summarise(count = n(), .groups = "drop")
+  summarise(count = n(), .groups = "drop") %>%
+  # Ensure every article appears with both sentiments (0 if no matches)
+  complete(article = article_names,
+           sentiment = c("positive", "negative"),
+           fill = list(count = 0))
 
 cat("\nSentiment counts per article:\n")
 print(as.data.frame(sentiment_results))
@@ -312,10 +336,11 @@ cat("Saved: keyword_trends.png\n")
 
 # --- 12. Topic Trend Line (keyword proportions across articles) ---
 keyword_pct <- keyword_analysis
+row_totals  <- rowSums(keyword_analysis[, c("blockchain", "cryptocurrency",
+                                              "regulation", "banking")])
 for (cat_name in c("blockchain", "cryptocurrency", "regulation", "banking")) {
-  keyword_pct[[cat_name]] <- keyword_analysis[[cat_name]] /
-    rowSums(keyword_analysis[, c("blockchain", "cryptocurrency",
-                                  "regulation", "banking")]) * 100
+  keyword_pct[[cat_name]] <- ifelse(row_totals == 0, 0,
+                                     keyword_analysis[[cat_name]] / row_totals * 100)
 }
 
 keyword_pct_long <- tidyr::pivot_longer(keyword_pct,
@@ -346,7 +371,9 @@ cat("Saved: topic_trend.png\n")
 # --- 13. Per-Article Word Clouds ---
 for (i in seq_along(articles)) {
   name <- article_names[i]
-  doc_freq <- as.matrix(dtm)[i, ]
+  row_mat  <- as.matrix(dtm[i, ])
+  doc_freq <- as.numeric(row_mat[1, ])
+  names(doc_freq) <- colnames(row_mat)
   doc_freq <- doc_freq[doc_freq > 0]
 
   fname <- paste0("wordcloud_", name, ".png")
@@ -370,20 +397,23 @@ cosine_similarity <- function(a, b) {
   sum(a * b) / denom
 }
 
-dtm_mat <- as.matrix(dtm)
 sim_matrix <- matrix(0, nrow = num_articles, ncol = num_articles,
                       dimnames = list(article_names, article_names))
 
 for (i in seq_len(num_articles)) {
-  for (j in seq_len(num_articles)) {
-    sim_matrix[i, j] <- cosine_similarity(dtm_mat[i, ], dtm_mat[j, ])
+  row_i <- as.numeric(as.matrix(dtm[i, ]))
+  for (j in seq(i, num_articles)) {
+    row_j <- as.numeric(as.matrix(dtm[j, ]))
+    s <- cosine_similarity(row_i, row_j)
+    sim_matrix[i, j] <- s
+    sim_matrix[j, i] <- s
   }
 }
 
 print(round(sim_matrix, 4))
 cat("(1.0 = identical, 0.0 = completely different)\n")
 
-# Heatmap of similarity (useful once there are 3+ articles)
+# Heatmap of similarity
 if (num_articles >= 2) {
   sim_df <- as.data.frame(as.table(sim_matrix))
   colnames(sim_df) <- c("Article_A", "Article_B", "Similarity")

@@ -17,11 +17,11 @@ required_packages <- c("tm", "SnowballC", "wordcloud", "RColorBrewer",
                         "ggplot2", "tidytext", "dplyr", "tidyr",
                         "stringr", "slam")
 
-install_if_missing <- function(pkg) {
-  if (!requireNamespace(pkg, quietly = TRUE)) {
-    install.packages(pkg, repos = "https://cloud.r-project.org")
-  }
-}
+source(file.path(dirname(
+  if (length(grep("^--file=", commandArgs(FALSE), value = TRUE)) > 0)
+    sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE))
+  else ""
+), "functions.R"), chdir = FALSE)
 
 invisible(lapply(required_packages, install_if_missing))
 
@@ -78,29 +78,15 @@ article_titles <- sapply(article_files, function(f) {
 names(article_titles) <- article_names
 
 # Build a friendly label for each article: "01 – Blockchain Technology …"
-article_labels <- setNames(
-  paste0(article_names, " \u2013 ", substr(article_titles, 1, 40), "..."),
-  article_names
-)
+article_labels <- build_article_labels(article_names, article_titles)
 
 # Dynamic colour palette that grows with the number of articles
-if (num_articles <= 8) {
-  article_colours <- setNames(
-    head(c("#3498DB", "#F39C12", "#2ECC71", "#E74C3C",
-           "#9B59B6", "#1ABC9C", "#E67E22", "#34495E"), num_articles),
-    article_names
-  )
-} else {
-  article_colours <- setNames(
-    colorRampPalette(brewer.pal(8, "Set2"))(num_articles),
-    article_names
-  )
-}
+article_colours <- build_article_colours(article_names)
 
 # Print word counts
 cat("\n--- Article Summary ---\n")
 for (name in article_names) {
-  wc <- length(unlist(strsplit(articles[[name]], "\\s+")))
+  wc <- count_words(articles[[name]])
   cat(sprintf("  Article %s : %d words  |  %s\n", name, wc, article_titles[name]))
 }
 
@@ -299,13 +285,6 @@ banking_keywords     <- c("bank", "banking", "payment", "finance", "financial",
                            "institution", "deposit", "lending", "credit",
                            "transaction", "settlement", "custody")
 
-count_keywords <- function(text, keywords) {
-  text_lower <- tolower(text)
-  sum(sapply(keywords, function(kw) {
-    str_count(text_lower, paste0("\\b", kw, "\\b"))
-  }))
-}
-
 keyword_analysis <- data.frame(
   article        = article_names,
   blockchain     = sapply(articles, count_keywords, blockchain_keywords),
@@ -335,13 +314,10 @@ dev.off()
 cat("Saved: keyword_trends.png\n")
 
 # --- 12. Topic Trend Line (keyword proportions across articles) ---
-keyword_pct <- keyword_analysis
-row_totals  <- rowSums(keyword_analysis[, c("blockchain", "cryptocurrency",
-                                              "regulation", "banking")])
-for (cat_name in c("blockchain", "cryptocurrency", "regulation", "banking")) {
-  keyword_pct[[cat_name]] <- ifelse(row_totals == 0, 0,
-                                     keyword_analysis[[cat_name]] / row_totals * 100)
-}
+keyword_pct <- compute_keyword_percentages(
+  keyword_analysis,
+  c("blockchain", "cryptocurrency", "regulation", "banking")
+)
 
 keyword_pct_long <- tidyr::pivot_longer(keyword_pct,
                                          cols      = -article,
@@ -390,12 +366,6 @@ for (i in seq_along(articles)) {
 
 # --- 14. Document Similarity (pairwise cosine matrix) ---
 cat("\n--- Document Similarity Matrix ---\n")
-
-cosine_similarity <- function(a, b) {
-  denom <- sqrt(sum(a^2)) * sqrt(sum(b^2))
-  if (denom == 0) return(0)
-  sum(a * b) / denom
-}
 
 sim_matrix <- matrix(0, nrow = num_articles, ncol = num_articles,
                       dimnames = list(article_names, article_names))
